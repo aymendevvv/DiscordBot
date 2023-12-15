@@ -3,6 +3,7 @@ import responses
 import aiosqlite
 from discord.ext import commands
 from discord import app_commands
+import os
 
 async def send_message(message , user_message  , is_private):
     try:
@@ -12,8 +13,8 @@ async def send_message(message , user_message  , is_private):
         print(e)
 
 def run_discord_bot():
-    TOKEN = 'MTE2Njc5MDE1NzAxNDQyMTU2NQ.GQvrYe.PF_sf2IAjUjIKj2QWoICvOFlJfjdpZSoCQk1e8'
-    
+    TOKEN = os.getenv('reallycoolbot_token')
+    print(TOKEN)
     intents = discord.Intents.default()
     intents.message_content = True
     intents.messages = True
