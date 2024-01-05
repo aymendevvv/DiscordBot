@@ -1,0 +1,2 @@
+- if number of challenges added to an event is greater than number of days available =>> update the ending date 
+- a participant can't enroll in more than one ONGOING event at a time ;
