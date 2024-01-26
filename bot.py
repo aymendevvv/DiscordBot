@@ -1,11 +1,8 @@
-import discord 
-import responses 
-import aiosqlite
-import random
+import discord ,  responses , aiosqlite , random ,  os
 from discord.ext import commands
 from discord import app_commands
-import os
-from databaseMng import chose_random , list_challenges_for , enrollement , registering
+#from databaseMng import chose_random , list_challenges_for , enrollement , registering
+from asyncDatabaseMng import *
 
 
 
@@ -65,7 +62,7 @@ def run_discord_bot():
     @app_commands.describe(evt='enter event id')
     async def enroll( interaction: discord.Interaction , evt:str):
         try : 
-            enrollement(interaction.user.name , evt )
+            await enrollement(interaction.user.name , evt )
             await interaction.response.send_message(f"{interaction.user.mention } congrats you're in ")
         except Exception as e : 
             await interaction.response.send_message(f"{e.args[0]}")
@@ -76,7 +73,7 @@ def run_discord_bot():
     @app_commands.describe(username='enter leetcode username')
     async def register( interaction: discord.Interaction , username:str):
         try : 
-            registering(interaction.user.name , username )
+            await registering(interaction.user.name , username )
             await interaction.response.send_message(f"{interaction.user.mention } you're now resigtered in the system !")
         except Exception as e : 
             await interaction.response.send_message(e)
@@ -125,9 +122,9 @@ def run_discord_bot():
                     
                 sixpm = start_date - (start_date % (24 * 3600)) + (18 * 3600)
 
-                for qst_id in chose_random(query.content  , int(num.content)) : 
+                for qst_id in await chose_random(query.content  , int(num.content)) : 
                     sixpm += 86400  
-                    await cursor.execute(" insert into challenges (id , id_event , start_date) values(? , ? , ? ) ;" , (qst_id , evt_id , sixpm + random.randint(-3500 , 3500) , )) 
+                    await cursor.execute(" insert into challenges ( id , id_event , start_date ) values(? , ? , ? ) ;" , (qst_id , evt_id , sixpm + random.randint(-3500 , 3500) , )) 
             await db.commit()
 
         await interaction.followup.send(f"{num.content} random challenges were added")
@@ -150,13 +147,24 @@ def run_discord_bot():
     @app_commands.describe(evnt_slug='get the list of challenges ')
     async def list_challenges(interaction: discord.Interaction , evnt_slug:str):
         
-        rows = list_challenges_for(evnt_slug)
+        rows = await list_challenges_for(evnt_slug)
         rows_list = [t[0] for t in rows]
         rowsLines = "\n".join(rows_list)
         
 
         await interaction.response.send_message( rowsLines )
+    ####################################### list_ongoing_events ################################################
+    @bot.tree.command(name="ongoing")
+    async def list_ongoing(interaction: discord.Interaction ):
+        
+        rows = await list_ongoing_evts()
+        rows_list = []
+        for row in rows :
+            rows_list.append(f"event : {row[1]} \nwith code: {row[0]} \n[ from {row[2]} to {row[3]}]\n")
+        rowsLines = "\n".join(rows_list)
+        
 
+        await interaction.response.send_message( rowsLines )
         
         
     

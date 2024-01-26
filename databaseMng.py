@@ -28,8 +28,8 @@ class DatabaseError(sqlite3.Error):
             self.message = "You're already in!"
         else:
             self.message = f"SQLite error with code {self.args}"
-
-        print(f"##################33{self.sqlite_errorcode}#################")
+            print(f"##################{self.sqlite_errorcode}#################")
+            
         super().__init__(self)
     
 
