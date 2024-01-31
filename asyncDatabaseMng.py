@@ -1,5 +1,5 @@
 import csv 
-import aiosqlite
+import aiosqlite , asyncio
 import random
 from contextlib import asynccontextmanager
 from typing import Final
@@ -88,27 +88,21 @@ async def previous_qsts():
         await cursor.close()
         return id_list
 
-async def chose_random(query, n: int):
+async def chose_random(query):
     async with connection(PATH) as db_con:
         cursor = await db_con.cursor()
+        # something to worry abt later
+        # system will run out of unique questions eventually : 
 
-        await cursor.execute('SELECT COUNT(*) FROM questions where ' + query)
-        count = (await cursor.fetchone())[0]
-        await cursor.execute("select * FROM questions where " + query)
+        await cursor.execute(f"select * from questions Left join challenges on challenges.id=questions.id  where { query } and challenges.id is null ")
         rows = await cursor.fetchall()
-
-        rand_set = set()
-        print(len(rows))
-        while len(rand_set) != n:
-            nbr = random.randint(0, count)
-            # check if question already chosen 
-            # change later to a sql join query 
-            
-            if nbr not in await previous_qsts():
-                rand_set.add(nbr)
-
+        rand_ids = [row[0] for row in rows] 
         await cursor.close()
-        return rand_set
+        print(rand_ids)
+
+        return rand_ids
+    
+
 async def enrollement(itrc_name, evt):
     try:
         async with connection(PATH) as db_con:
@@ -150,7 +144,7 @@ async def list_challenges_for(evt):
     async with connection(PATH) as db_con:
         cursor = await db_con.cursor()
 
-        await cursor.execute('select title, titleSlug from challenges join questions on challenges.id = questions.id where id_event = ? ;', (evt,))
+        await cursor.execute("select title, titleSlug , start_date from challenges join questions on challenges.id = questions.id where id_event = ? ;", (evt,))
         rows = await cursor.fetchall()
         await cursor.close()
         
@@ -207,7 +201,7 @@ async def update_scores():
         
         await cursor.close()
         print("scores updated")
-    
+asyncio.run(chose_random("difficulty = 'Easy' and acRate > 90 "))   
 #populate_submissions()
 #enrollement("eimen_" , "" , 4)
 #query = "difficulty='Easy' and topicTags not like '%Math%'  "

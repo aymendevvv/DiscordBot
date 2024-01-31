@@ -3,14 +3,14 @@
 '''
 
 import discord 
-import responses 
+import sandbox 
 import aiosqlite
 from discord.ext import commands
 from discord import app_commands
 
 async def send_message(message , user_message  , is_private):
     try:
-        response = responses.handle_message(user_message)
+        response = sandbox.handle_message(user_message)
         await message.author.send(response) if is_private else await message.channel.send(response)
     except Exception as e :
         print(e)

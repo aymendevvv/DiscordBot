@@ -1,15 +1,16 @@
-import discord ,  responses , aiosqlite , random ,  os
+import discord ,  sandbox , aiosqlite , random ,  os , time
 from discord.ext import commands
 from discord import app_commands
 #from databaseMng import chose_random , list_challenges_for , enrollement , registering
 from asyncDatabaseMng import *
+from uuid import uuid4
 
 
 
 
 async def send_message(message , user_message  , is_private):
     try:
-        response = responses.handle_message(user_message)
+        response = sandbox.handle_message(user_message)
         await message.author.send(response) if is_private else await message.channel.send(response)
     except Exception as e :
         print(e)
@@ -82,21 +83,37 @@ def run_discord_bot():
 
     ####################################### start event ################################################
     @bot.tree.command(name="start_evt")
-    @app_commands.describe(evt_args='what is the event name ? ')
-    async def startevt(interaction: discord.Interaction , evt_args:str):
-        params = evt_args.split(":::") 
-
-        print(params)
-        start_date = int(params[1])
-        end_date = int(params[2])
+    @app_commands.describe(event='what is the event about ? ' , start_date = 'when is it starting' , end_date="when it ending "  )
+    async def startevt(interaction: discord.Interaction , event:str , start_date:int , end_date:int ):
         
+        await interaction.response.send_message("enter search query ")
+        query = await bot.wait_for("message", check=lambda msg: msg.author == interaction.user)
+        event_id = uuid4().int%1000000
+        print(query.content)
+
+        #fix , when time is above 6pm , start_date = next day
     
         async with aiosqlite.connect("main.db") as db:
             async with db.cursor() as cursor:
-                await cursor.execute(" insert into event (name , start_date , end_date) values(? , ? , ? ) ;" , (params[0] , start_date,end_date , )) 
+                await cursor.execute(" insert into event ( id  , name , start_date , end_date) values( ? , ? , ? , ? ) ;" , ( str(event_id) , event , start_date,end_date , )) 
+
+                sixpm = start_date - (start_date % (24 * 3600)) + (18 * 3600)
+                qst_set = await chose_random(query.content )
+
+                days = (end_date-start_date)//86400
+                if days > len(qst_set) : 
+                    await interaction.followup.send(f"not enough questions try another query")
+                else :
+                    qst_list = random.sample(qst_set , days)
+                    for qst_id in qst_list : 
+                        sixpm += 86400  
+                        await cursor.execute(" insert into challenges ( id , id_event , start_date ) values(? , ? , ? ) ;" , (qst_id , event_id , sixpm + random.randint(-3500 , 3500) , )) 
+                        
+                
             await db.commit()
 
-        await interaction.response.send_message(f" new event started by {interaction.user.nick} , lasts {((end_date-start_date) // 86400)+1 } days")
+        await interaction.followup.send(f" new event started by {interaction.user.nick} , lasts {((end_date-start_date) // 86400)+1 } days \n code : {event_id} (you'll need this to enroll in the event)")
+        
     
     
     ####################################### add challenges ################################################
@@ -148,23 +165,27 @@ def run_discord_bot():
     async def list_challenges(interaction: discord.Interaction , evnt_slug:str):
         
         rows = await list_challenges_for(evnt_slug)
-        rows_list = [t[0] for t in rows]
-        rowsLines = "\n".join(rows_list)
+        rows_list = [t[0] for t in rows if int(time.time())>int(t[2])]
+
+        rows_list.append(f" ")
+        rowsLines = "\n• ".join(rows_list)
         
 
-        await interaction.response.send_message( rowsLines )
+        await interaction.response.send_message( f"past challenges :\n{rowsLines} \n------------------\n this event contains {len(rows)} challenges in total \n the rest will be revealed according to their respective starting time" )
     ####################################### list_ongoing_events ################################################
     @bot.tree.command(name="ongoing")
     async def list_ongoing(interaction: discord.Interaction ):
         
         rows = await list_ongoing_evts()
-        rows_list = []
-        for row in rows :
-            rows_list.append(f"event : {row[1]} \nwith code: {row[0]} \n[ from {row[2]} to {row[3]}]\n")
-        rowsLines = "\n".join(rows_list)
-        
-
-        await interaction.response.send_message( rowsLines )
+        if len(rows) != 0 :
+                
+            rows_list = []
+            for row in rows :
+                rows_list.append(f"event : {row[1]} \nwith code: {row[0]} \n[ from {row[2]} to {row[3]}]\n")
+            rowsLines = "\n".join(rows_list)
+            await interaction.response.send_message( rowsLines )
+        else  :
+            await interaction.response.send_message( "there are no ongoin event currently " )
         
         
     
