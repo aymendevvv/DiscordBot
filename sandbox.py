@@ -1,7 +1,4 @@
 from uuid import uuid4
 import time 
-rand_id = uuid4()
+from validator import *
 
-print(rand_id.int%10000000)
-
-print(int(time.time()))
