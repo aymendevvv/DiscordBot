@@ -1,4 +1,4 @@
-import discord ,  sandbox , aiosqlite , random ,  os , time , asyncio , schedule , datetime
+import discord ,  sandbox , aiosqlite , random ,  os , time , asyncio 
 from typing import Final
 from discord.ext import commands
 from discord import app_commands , Embed
@@ -11,17 +11,33 @@ dbmanager = DatabaseManager(PATH)
 
 
 
-async def sendPost(bot , details ):
-    print("message to be sent ")
+async def sendPost(bot , details , dbmanager):
+    #details contain the server to send to + channel + time of posting
+    while True : 
 
-    ## make it send notification to the concerned channel only 
-    for server in bot.guilds:
-        print(f"server id : {server.id } matching with {details[4]}")
-        if server.id == details[4] : 
-            for channel in server.channels :
-                if channel.type.name == 'text' and channel.id == details[5]:
-                    
-                    await channel.send(f"here's todays challenge : \nhttps://leetcode.com/problems/{details[1]}/description/  \nenjoy! " , suppress_embeds=True)
+        print("infinit loop ")
+        current_time = time.localtime()
+        current_hour = current_time.tm_hour
+        current_minute = current_time.tm_min
+        posting_time = time.localtime(int(details[2]))
+        posting_hour = posting_time.tm_hour
+        posting_minute = posting_time.tm_min
+        
+
+        # Check if the current time matches the target time
+        if (current_hour > posting_hour) or (current_hour == posting_hour  and current_minute > posting_minute) :
+            print("message to be sent ")
+            ## make it send notification to the concerned channel only 
+            for server in bot.guilds:
+                print(f"server id : {server.id } matching with {details[4]}")
+                if server.id == details[4] : 
+                    for channel in server.channels :
+                        if channel.type.name == 'text' and channel.id == details[5]:
+                            
+                            await channel.send(f"here's todays challenge : \nhttps://leetcode.com/problems/{details[1]}/description/  \nenjoy! " , suppress_embeds=True)
+                            dbmanager.mark_challenge_sent(details[3] , details[6])
+        await asyncio.sleep(60)
+
 
 async def fetch_today_challenges():
 
@@ -55,58 +71,31 @@ def run_discord_bot():
             #text_channel_list = []
             synced = await bot.tree.sync() 
             print(f"synced  : {len(synced)} commands")
-            today_challs = await fetch_today_challenges()
-            print(today_challs)
 
-            print(f"guilds : {len(bot.guilds)}")
-            print(f"your guild id : {bot.guilds[0].id}")
-            print(f"your channels id :{bot.guilds[0].channels[0]}")
-            for chall in today_challs :     
+            #EVERYDAY
+            while True : 
+                await dbmanager.populate_submissions() 
+                today_challs = await fetch_today_challenges()
+                print(today_challs)
+                for chall in today_challs :     
 
-                                
-                struct_time = time.gmtime(int(chall[2]) +3600)
-                formatted_time = time.strftime('%H:%M', struct_time)
-                challenge_details = await dbmanager.get_challenge_details( chall[0] , chall[1] )
-                print(f"scheduled at {formatted_time}")
-
-                current_hour, current_minute = time.localtime(time.time())[3:5]
-                chall_hour, chall_minute = map(int, formatted_time.split(':'))
-
-                if chall_hour < current_hour or (chall_hour == current_hour and chall_minute < current_minute):
-                    await sendPost(bot , challenge_details)
-                else:
-                    schedule.every().day.at(formatted_time).do(lambda: asyncio.create_task(sendPost(bot , challenge_details )))
-                    
-            while True:
-                schedule.run_pending()
-                print("pending")
-                await asyncio.sleep(30)
-
-                # Check if the job has been executed
-                #if schedule.get_jobs() == []:
-                #    break 
-                        
+                                    
+                    challenge_details = await dbmanager.get_challenge_details( chall[0] , chall[1] )
+                    print(f"challenge_details : {challenge_details}")
+                    sendPost(bot , challenge_details , dbmanager)
+                await asyncio.sleep(10)
+                print('next day')
+            
 
         except Exception as e : 
-            print(e)
+            print(e.with_traceback())
+            
+
+
 
         
         print(f"{bot.user} is running ")
-    '''
-     @bot.event 
-    async def on_message(message) :
-        if message.author == bot.user :
-            return
-        print("message content ", message.content)
-        username = str(message.author)
-        user_message = str(message.content)
-        channel = str(message.channel)
-
-        print(f'this message "{user_message}" was sent by {username} on channel : {channel}"')
-
-        await send_message(message , user_message , is_private=False )
-        await send_message(message , user_message , is_private=True )
-    '''
+   
    
     #################################### enroll ###################################################
     
@@ -145,6 +134,7 @@ def run_discord_bot():
             event_id = uuid4().int%1000000
             wherestmt = query.content
             
+            # AT AROUND WHAT TIME WOULD YOU LIKE TO RECIEVE THE NOTIFICATION
             await dbmanager.start_evt(event_id , event , start_date , end_date  , wherestmt , interaction.guild_id , interaction.channel_id)
             #fix , when time is above 6pm , start_date = next day
         

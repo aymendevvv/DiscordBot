@@ -183,11 +183,20 @@ class DatabaseManager:
         async with connection(self.database_path) as db_con:
             cursor = await db_con.cursor()
 
-            await cursor.execute("select title, titleSlug , challenges.start_date , challenges.id , guild_id , channel_id from challenges join questions on challenges.id = questions.id join event on event.id = challenges.id_event  where id_event = ? and challenges.id = ? ;", (id_evt,id ,))
+            await cursor.execute("select title, titleSlug , challenges.start_date , challenges.id , guild_id , channel_id , challenges.id_event from challenges join questions on challenges.id = questions.id join event on event.id = challenges.id_event  where id_event = ? and challenges.id = ? ;", (id_evt,id ,))
             challenge = await cursor.fetchone()
             await cursor.close()
             
             return challenge
+        
+    async def mark_challenge_sent(self,id , id_evt)  :
+
+        async with connection(self.database_path) as db_con:
+            cursor = await db_con.cursor()
+
+            await cursor.execute(f" UPDATE challenges SET done = 2 WHERE challenges.id = {id} AND challenges.id_event = {id_evt} ; ", (id , id_evt,))
+            await cursor.close()
+            print("challenge updated")
             
 
     async def list_challenges_for(self, evt):
@@ -195,7 +204,7 @@ class DatabaseManager:
         async with connection(self.database_path) as db_con:
             cursor = await db_con.cursor()
 
-            await cursor.execute("select title, titleSlug , start_date , challenges.id from challenges join questions on challenges.id = questions.id where id_event = ? ;", (evt,))
+            await cursor.execute("select title, titleSlug , start_date , challenges.id from challenges join questions on challenges.id = questions.id where id_event = ? and challenges.done != 1;", (evt,))
             rows = await cursor.fetchall()
             await cursor.close()
             
@@ -212,11 +221,12 @@ class DatabaseManager:
             
             return rows
 
-    async def update_scores(self):
+    async def update_scores(self , cur):
+
         async with connection(self.database_path) as db_con:
-            cursor = await db_con.cursor()
+            cursor = cur
             
-            cursor.execute('select participant_id, event_id from enrollement;')
+            await cursor.execute('select participant_id, event_id from enrollement;')
             rows = await cursor.fetchall()
             
             for row in rows:
@@ -233,26 +243,48 @@ class DatabaseManager:
     async def populate_submissions(self):
         async with connection(self.database_path) as db_con:
             cursor = await db_con.cursor()
-            await cursor.execute('select * from enrollement join participant on enrollement.participant_id = participant.id;')
-            rows = await cursor.fetchall()
-            
-            for row in rows:
-                scraped_challenges = get_recent_submissions(row[5])
+            #ongoing enrollements  :
+            await cursor.execute("select username , event.id , start_date , participant.id  from enrollement join participant on enrollement.participant_id = participant.id join event on event.id = enrollement.event_id  where  strftime('%s', 'now') < end_date  ;")
+            enrollements = await cursor.fetchall()
+            #for every user that is in an ongoing event 
+            for enrollement in enrollements : 
 
-                await cursor.execute('select titleSlug, challenges.id, challenges.id_event from challenges join questions on challenges.id == questions.id where id_event = ? ;', (row[1],))
-                challenges_tuples = await cursor.fetchall()
+                scraped_challenges = get_recent_submissions(enrollement[0]) #returns a list of dictionaries based on leetcode username
+                print(f"participant {enrollement[0]}")
+
+                await cursor.execute("select titleSlug, challenges.id, challenges.id_event , event.start_date from challenges join questions on challenges.id == questions.id join event on event.id==challenges.id_event where  strftime('%s', 'now') < end_date and event.id = ?  ;" , (enrollement[1],))
+                ongoing_challenges = await cursor.fetchall()
+
+                #keep only the challenges after the event started 
+                cleaned_challenges = [chlg  for chlg in scraped_challenges if int(chlg['timestamp']) >= int(enrollement[2]) ] # remove all challenges done before the start of the event 
+
                 
-                for scraped_challenge in scraped_challenges:
-                    for tuple in challenges_tuples:
-                        if scraped_challenge.get('titleSlug') == tuple[0]:
-                            try:
-                                await cursor.execute("insert into submissions (participant_id, challenge_id, challenge_event_id, completion_time) values(?, ?, ?, ?);", (row[0], tuple[1], tuple[2], scraped_challenge.get('timestamp')))
-                            except aiosqlite.IntegrityError as e:
-                                pass
+                print(f"scraped : {len(scraped_challenges)} , left : {len(cleaned_challenges)}")
+                print(scraped_challenges)
 
-            await cursor.close()
-            print("submissions populated")
-            await self.update_scores()
+                match_found = False
+                i = 0
+
+                #match the two sets 
+                #use while loop to find the element with the earliest timestamp
+                while not match_found : 
+
+                    for ongoing_challenge in ongoing_challenges:
+                        if scraped_challenges[i].get('titleSlug') == ongoing_challenge[0]:
+                            match_found = True
+                            try:
+                                await cursor.execute("insert into submissions (participant_id, challenge_id, challenge_event_id, completion_time) values(?, ?, ?, ?);", (enrollement[3], ongoing_challenge[1], ongoing_challenge[2], scraped_challenges[i].get('timestamp')))
+                                break
+                            except aiosqlite.IntegrityError as e:
+                                print(e)
+                                continue
+                                pass
+                            
+                    if match_found :
+                        break
+
+            print("submissions refreshed")
+            await self.update_scores(cursor)
 
 
 
