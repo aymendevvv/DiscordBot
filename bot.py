@@ -52,6 +52,7 @@ async def fetch_today_challenges():
             if (int(challenge[2])//86400 == int(time.time())//86400)  :
                 challenges_list.append((challenge[3] , evt , challenge[2]))
         return challenges_list
+    return []
                 
 
 def run_discord_bot():
@@ -68,27 +69,37 @@ def run_discord_bot():
     @bot.event
     async def on_ready():
         try : 
-            #text_channel_list = []
+            today_challs =  []
+            
+            
             synced = await bot.tree.sync() 
             print(f"synced  : {len(synced)} commands")
 
             #EVERYDAY
             while True : 
+                print(0)
                 await dbmanager.populate_submissions() 
+                print(1)
                 today_challs = await fetch_today_challenges()
+                print(2)
                 print(today_challs)
+                print(3)
                 for chall in today_challs :     
 
                                     
                     challenge_details = await dbmanager.get_challenge_details( chall[0] , chall[1] )
+                    print(4)
                     print(f"challenge_details : {challenge_details}")
                     sendPost(bot , challenge_details , dbmanager)
+                    print(5)
                 await asyncio.sleep(10)
                 print('next day')
             
 
         except Exception as e : 
+            
             print(e.with_traceback())
+            
             
 
 
@@ -124,39 +135,60 @@ def run_discord_bot():
 
     ####################################### start event ################################################
     @bot.tree.command(name="start_evt")
-    @app_commands.describe(event='what is the event about ? ' , start_date = 'when is it starting' , end_date="when it ending "  )
-    async def startevt(interaction: discord.Interaction , event:str , start_date:int , end_date:int ):
-        try : 
-            print(f"was sent from : {interaction.channel.name}")
-            
-            await interaction.response.send_message("enter search query ")
-            query = await bot.wait_for("message", check=lambda msg: msg.author == interaction.user)
-            event_id = uuid4().int%1000000
-            wherestmt = query.content
-            
-            # AT AROUND WHAT TIME WOULD YOU LIKE TO RECIEVE THE NOTIFICATION
-            await dbmanager.start_evt(event_id , event , start_date , end_date  , wherestmt , interaction.guild_id , interaction.channel_id)
-            #fix , when time is above 6pm , start_date = next day
+    @app_commands.describe(event='what is the event about ? ' , start_date = 'when is it starting' , end_date="when it ending " , notif_time="when to send the notification (HH)format")
+    async def startevt(interaction: discord.Interaction , event:str , start_date:int , end_date:int , notif_time:int):
+        if interaction.user.guild_permissions.administrator  :
         
-            await interaction.followup.send(f" new event started by {interaction.user.nick} , lasts {((end_date-start_date) // 86400)+1 } days \n code : {event_id} (you'll need this to enroll in the event)")
+            print(f"was sent from : {interaction.channel.name}")
+            await interaction.response.send_message("enter search query ")
+            while True:
+                try:
+                    query = await bot.wait_for("message", check=lambda msg: msg.author == interaction.user)
+                    event_id = uuid4().int % 1000000
+                    wherestmt = query.content 
 
-        except Exception as e :
+                    message = await dbmanager.start_evt(event_id, event, start_date, end_date, wherestmt, interaction.guild_id, interaction.channel_id, notif_time)
 
-            await interaction.followup.send(f"something went wrong : \n{e} ")
+                    # If start_evt completes without raising an exception, break out of the loop
+                    break
+                except Exception as e:
+                    print(f"An error occurred: {e}")
+                    await interaction.followup.send(f"An error occurred : {e} Please try again.")
+
+        
+            await interaction.followup.send(f" new event started by {interaction.user.nick} , {message}, code : {event_id} (you'll need this to enroll in the event)")
+
+        
+        else  :
+            await interaction.response.send_message("https://tenor.com/view/mouse-gif-18572789")
+
+            
+    ####################################### delete event ################################################
+    @bot.tree.command(name="delete_evt")
+    @app_commands.describe(evt_id='enter the events id  ')
+    async def startevt(interaction: discord.Interaction , evt_id:int ):
+        if interaction.user.guild_permissions.administrator  :
+            
+            try :
+                await dbmanager.delete_evt(evt_id)
+                await interaction.response.send_message("event deleted")
+            except Exception as e :
+                await interaction.response.send_message(e)
+            
+        
+        else  :
+            await interaction.response.send_message("https://tenor.com/view/mouse-gif-18572789")
 
             
     
     
     ####################################### add challenge ################################################
     @bot.tree.command(name="add_challenge")
-    @app_commands.describe(chal_id='challenge id' ,evt_id='to which event ?', start_time='when is it starting?')
-    async def add_challenge(interaction: discord.Interaction , evt_id:str , chal_id:int , start_time:int):
+    @app_commands.describe(chal_id='challenge id' ,evt_id='to which event ?', start_time='when is it starting? (optional)')
+    async def add_challenge(interaction: discord.Interaction , evt_id:str , chal_id:int , start_time:int = None):
         
         try :
             await dbmanager.add_challenge( evt_id ,  chal_id , start_time) 
-
-
-            
         except Exception as e :
             await interaction.response.send_message(e)
         
@@ -169,14 +201,17 @@ def run_discord_bot():
     @app_commands.describe(evnt_id='get the list of challenges ')
     async def list_challenges(interaction: discord.Interaction , evnt_id:str):
         
-        rows = await dbmanager.list_challenges_for(evnt_id)
-        rows_list = [t[0] for t in rows if int(time.time())>int(t[2])]
+        try : 
+            rows = await dbmanager.list_challenges_for(evnt_id)
+            rows_list = [t[0] for t in rows if int(time.time())>int(t[2])]
 
-        rows_list =[' ']+rows_list
-        rowsLines = "\n• ".join(rows_list)
-        
+            rows_list =[' ']+rows_list
+            rowsLines = "\n• ".join(rows_list)
+            
 
-        await interaction.response.send_message( f"past challenges :\n{rowsLines} \n------------------\n this event contains {len(rows)} challenges in total \n the rest will be revealed according to their respective starting time" )
+            await interaction.response.send_message( f"past challenges :\n{rowsLines} \n------------------\n this event contains {len(rows)} challenges in total \n the rest will be revealed according to their respective starting time" )
+        except Exception as e :
+            await interaction.response.send_message(e) 
     ####################################### list_ongoing_events ################################################
     @bot.tree.command(name="list_ongoing")
     async def list_ongoing(interaction: discord.Interaction ):
@@ -191,6 +226,19 @@ def run_discord_bot():
             await interaction.response.send_message( rowsLines )
         else  :
             await interaction.response.send_message( "there are no ongoin event currently " )
+    
+    ####################################### more details ################################################
+    @bot.tree.command(name="get_details")
+    @app_commands.describe(evnt_id='insert the events id')
+    async def list_ongoing(interaction: discord.Interaction , evnt_id:int):
+        
+        try :
+                    
+            infos = await dbmanager.get_event_details(evnt_id)
+            
+            await interaction.response.send_message( infos )
+        except Exception as e:
+            await interaction.response.send_message( f"something went wrong {e}" )
         
         
     

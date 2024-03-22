@@ -83,6 +83,7 @@ for qst in qsts :
     
     qsts_list.append(flattened_data)
     
+    
 df = pd.DataFrame(qsts_list)
 
 df.to_csv("challenges.csv" , index=False)

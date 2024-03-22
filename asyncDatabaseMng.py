@@ -1,10 +1,11 @@
 import csv 
 import aiosqlite , asyncio
+import time 
 import random
 from contextlib import asynccontextmanager
 from typing import Final
-from crawler import get_recent_submissions , verifiy_existance
-from validator import *
+from scraper import get_recent_submissions , verifiy_existance
+from validator import Validator
 
 @asynccontextmanager
 async def connection(database) :
@@ -77,6 +78,9 @@ class DatabaseManager:
 
             await cursor.close()
             return id_list
+        
+    async def convert_to_datetime(self , unix): 
+        return time.strftime("%d/%m/%Y %H:%M", time.localtime(unix))
 
     async def chose_random(self , query):
         async with connection(self.database_path) as db_con:
@@ -112,7 +116,7 @@ class DatabaseManager:
                 raise Exception(f"SQLite error with code {e.code}") from e
             
 
-    async def add_challenge(self ,evt_id:str , chal_id:int , start_time:int):
+    async def add_challenge(self ,evt_id:str , chal_id:int , start_time:int|None):
 
         try:
             async with connection(self.database_path) as db_con:
@@ -124,39 +128,67 @@ class DatabaseManager:
                     start_date  = result[0] 
                     end_date =  result[1] 
                     
-                validate_add_challenge(start_date , start_time)
+                Validator.validate_add_challenge(start_date , start_time)
+                if start_time == None : 
+                    start_time = end_date + 1500
                     
                 await cursor.execute(" insert into challenges ( id , id_event , start_date ) values(? , ? , ? ) ;" , (chal_id , evt_id , start_time + random.randint(-3500 , 3500) , )) 
+                
                 if start_time > end_date :
-                    sixpm = start_time - (start_time % (24 * 3600)) + (18 * 3600)
-                    await cursor.execute("update event set end_date = ? where id = ?", (sixpm + 3600 , evt_id ,)) 
-                    print(f"new end date : {sixpm} ")
+                    await cursor.execute("update event set end_date = ? where id = ?", (start_time + 3600 , evt_id ,)) 
+                    print(f"new end date : {start_time} ")
 
         except aiosqlite.Error as e:
                 raise Exception() from e
     
-    async def start_evt(self ,evt_id:str, evt_name , start_date:int , end_date:int, wherestmt:str , guild_id:int , channel_id:int):
+    async def start_evt(self ,evt_id:str, evt_name , start_date:int , end_date:int, wherestmt:str , guild_id:int , channel_id:int , notif_time:int):
         
                 
         try:
             async with connection(self.database_path) as db_con:
 
-                cursor = await db_con.cursor()
-                await cursor.execute(" insert into event ( id  , name , start_date , end_date , guild_id , channel_id) values( ? , ? , ? , ? , ?,?) ;" , ( str(evt_id) , evt_name , start_date,end_date ,guild_id , channel_id , )) 
                 
-                #is set to six pm , change 18 to anything else if you want another time
-                sixpm = start_date - (start_date % (24 * 3600)) + (18 * 3600)
+                
+                h = time.localtime().tm_hour ; 
+                if notif_time < h + 1  :
+                    start_date += 86400 
+                Validator.validate_start_evt(event=evt_name, end_date= end_date, start_date=start_date,notif_time= notif_time)
+                
+                cursor = await db_con.cursor()
+                await cursor.execute(" insert into event ( id  , name , start_date , end_date , guild_id , channel_id) values( ? , ? , ? , ? , ?,?) ;" , ( str(evt_id) , evt_name , start_date,(end_date +4500) ,guild_id , channel_id , )) 
+                
+                ajusted_start_date = start_date - (start_date % (24 * 3600)) + (notif_time * 3600)
+                starting = ajusted_start_date ; 
                 qst_set = await self.chose_random(wherestmt)
+                
 
-                days = (end_date-start_date)//86400
+                days = (end_date-start_date)/86400
+                #instead of importing math.ceil
+                days = int((-(-days // 1) ) + 1 )
+                
                 if days > len(qst_set) : 
                     raise ValueError(f"not enough questions try another query")
                 else :
                     qst_list = random.sample(qst_set , days)
                     for qst_id in qst_list : 
-                        sixpm += 86400  
-                        await cursor.execute(" insert into challenges ( id , id_event , start_date ) values(? , ? , ? ) ;" , (qst_id , evt_id , sixpm + random.randint(-3500 , 3500) , )) 
+                        await cursor.execute(" insert into challenges ( id , id_event , start_date ) values(? , ? , ? ) ;" , (qst_id , evt_id , ajusted_start_date + random.randint(-3500 , 3500) , )) 
+                        ajusted_start_date += 86400  
                         
+                return f"\n first challenge starts at around  { await self.convert_to_datetime(starting)} \n the event lasts : {days} days "
+                        
+                
+
+        except aiosqlite.Error as e:
+                raise Exception() from e
+            
+    async def delete_evt(self , evt_id:int):
+        
+                
+        try:
+            async with connection(self.database_path) as db_con:
+                
+                cursor = await db_con.cursor()
+                await cursor.execute(" delete from event where id = ? ;" , (evt_id ,)) 
                 
 
         except aiosqlite.Error as e:
@@ -188,6 +220,17 @@ class DatabaseManager:
             await cursor.close()
             
             return challenge
+        
+    async def get_event_details(self, id_evt) :
+        async with connection(self.database_path) as db_con:
+            cursor = await db_con.cursor()
+
+            await cursor.execute("select * from event where id = ?", (id_evt ,))
+            details = await cursor.fetchone()
+            
+            await cursor.close()
+            
+            return f"Event : {details[1]} \n starts : {await self.convert_to_datetime(details[2])} \n ends : {await self.convert_to_datetime(details[3])}"
         
     async def mark_challenge_sent(self,id , id_evt)  :
 

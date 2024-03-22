@@ -4,7 +4,7 @@ import aiosqlite
 import random
 from contextlib import contextmanager
 from typing import Final
-from crawler import get_recent_submissions , verifiy_existance
+from scraper import get_recent_submissions , verifiy_existance
 
 
 @contextmanager
