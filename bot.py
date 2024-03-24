@@ -15,7 +15,7 @@ async def sendPost(bot , details , dbmanager):
     #details contain the server to send to + channel + time of posting
     while True : 
 
-        print("infinit loop ")
+        print("not yet ")
         current_time = time.localtime()
         current_hour = current_time.tm_hour
         current_minute = current_time.tm_min
@@ -26,8 +26,7 @@ async def sendPost(bot , details , dbmanager):
 
         # Check if the current time matches the target time
         if (current_hour > posting_hour) or (current_hour == posting_hour  and current_minute > posting_minute) :
-            print("message to be sent ")
-            ## make it send notification to the concerned channel only 
+            
             for server in bot.guilds:
                 print(f"server id : {server.id } matching with {details[4]}")
                 if server.id == details[4] : 
@@ -35,8 +34,8 @@ async def sendPost(bot , details , dbmanager):
                         if channel.type.name == 'text' and channel.id == details[5]:
                             
                             await channel.send(f"here's todays challenge : \nhttps://leetcode.com/problems/{details[1]}/description/  \nenjoy! " , suppress_embeds=True)
-                            dbmanager.mark_challenge_sent(details[3] , details[6])
-        await asyncio.sleep(60)
+                            await dbmanager.mark_challenge_sent(details[3] , details[6])
+        await asyncio.sleep(10)
 
 
 async def fetch_today_challenges():
@@ -46,9 +45,9 @@ async def fetch_today_challenges():
     print(ongoing_evts_ids)
     for evt in ongoing_evts_ids :
         challenges = await dbmanager.list_challenges_for(evt) 
+        print(f"challenges : {challenges}")
         challenges_list = []
         for challenge in challenges :
-            #if the challenge is today and time has passed 
             if (int(challenge[2])//86400 == int(time.time())//86400)  :
                 challenges_list.append((challenge[3] , evt , challenge[2]))
         return challenges_list
@@ -77,23 +76,23 @@ def run_discord_bot():
 
             #EVERYDAY
             while True : 
-                print(0)
+        
                 await dbmanager.populate_submissions() 
-                print(1)
+        
                 today_challs = await fetch_today_challenges()
-                print(2)
-                print(today_challs)
-                print(3)
+        
+                print(f"todays challenge : {today_challs}")
+        
                 for chall in today_challs :     
 
                                     
                     challenge_details = await dbmanager.get_challenge_details( chall[0] , chall[1] )
-                    print(4)
+            
                     print(f"challenge_details : {challenge_details}")
-                    sendPost(bot , challenge_details , dbmanager)
-                    print(5)
-                await asyncio.sleep(10)
-                print('next day')
+                    asyncio.ensure_future(sendPost(bot , challenge_details , dbmanager))
+            
+                await asyncio.sleep(60)
+                print('refresh submissions')
             
 
         except Exception as e : 
@@ -131,6 +130,17 @@ def run_discord_bot():
         except Exception as e : 
             await interaction.response.send_message(e)
 
+#################################### my stats ###################################################
+            
+
+    @bot.tree.command(name="my_stats")
+    async def my_stats( interaction: discord.Interaction ):
+        try : 
+
+            stats = await dbmanager.get_stats(interaction.user.name )
+            await interaction.response.send_message(f"{stats }")
+        except Exception as e : 
+            await interaction.response.send_message(e)
 
 
     ####################################### start event ################################################
@@ -188,12 +198,13 @@ def run_discord_bot():
     async def add_challenge(interaction: discord.Interaction , evt_id:str , chal_id:int , start_time:int = None):
         
         try :
-            await dbmanager.add_challenge( evt_id ,  chal_id , start_time) 
+            new_date = await dbmanager.add_challenge( evt_id ,  chal_id , start_time) 
         except Exception as e :
             await interaction.response.send_message(e)
-        
-        
-        await interaction.response.send_message("new challenge was added")
+        if new_date != None : 
+            await interaction.response.send_message(f"new challenge was added \n {new_date}")
+        else :
+            await interaction.response.send_message("new challenge was added")
         
 
     ####################################### list_challenges_for ################################################

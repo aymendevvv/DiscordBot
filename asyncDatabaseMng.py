@@ -130,13 +130,18 @@ class DatabaseManager:
                     
                 Validator.validate_add_challenge(start_date , start_time)
                 if start_time == None : 
-                    start_time = end_date + 1500
+                    #random start time between 12:00 and 20:00 
+                    start_time = end_date - (end_date % (24 * 3600)) + (random.randint(43000 , 75000)) + 86400
+                    
+                    
                     
                 await cursor.execute(" insert into challenges ( id , id_event , start_date ) values(? , ? , ? ) ;" , (chal_id , evt_id , start_time + random.randint(-3500 , 3500) , )) 
                 
                 if start_time > end_date :
                     await cursor.execute("update event set end_date = ? where id = ?", (start_time + 3600 , evt_id ,)) 
-                    print(f"new end date : {start_time} ")
+                    return f"event end date updated : {await self.convert_to_datetime(start_time + 3600)}"
+                else : 
+                    return None 
 
         except aiosqlite.Error as e:
                 raise Exception() from e
@@ -237,7 +242,7 @@ class DatabaseManager:
         async with connection(self.database_path) as db_con:
             cursor = await db_con.cursor()
 
-            await cursor.execute(f" UPDATE challenges SET done = 2 WHERE challenges.id = {id} AND challenges.id_event = {id_evt} ; ", (id , id_evt,))
+            await cursor.execute(f" UPDATE challenges SET post_sent = 1 WHERE challenges.id = {id} AND challenges.id_event = {id_evt} ; ", (id , id_evt,))
             await cursor.close()
             print("challenge updated")
             
@@ -247,7 +252,7 @@ class DatabaseManager:
         async with connection(self.database_path) as db_con:
             cursor = await db_con.cursor()
 
-            await cursor.execute("select title, titleSlug , start_date , challenges.id from challenges join questions on challenges.id = questions.id where id_event = ? and challenges.done != 1;", (evt,))
+            await cursor.execute("select title, titleSlug , start_date , challenges.id from challenges join questions on challenges.id = questions.id where id_event = ? and challenges.post_sent != 1;", (evt,))
             rows = await cursor.fetchall()
             await cursor.close()
             
@@ -264,20 +269,102 @@ class DatabaseManager:
             
             return rows
 
+    async def calculate_streaks(self , user_id) :
+        async with connection(self.database_path) as db_con:
+            cursor = await db_con.cursor()
+            await cursor.execute("select * from submissions where participant_id = ? ORDER BY  completion_time DESC ; " , (user_id,))
+            submissions = await cursor.fetchall()
+            print("subs : {}".format(submissions))
+            streaks = []
+            streak = 1
+            for i in range(1 , len(submissions)) :
+                
+                #its counted as a streak if the interval between two challenges is less than 24H and more than 5h
+                
+                
+                if 18000 < int(submissions[i-1][4]) - int(submissions[i][4]) < 86400 :
+                    streak += 1
+                else :
+                    streaks.append(streak)
+                    streak = 1
+                    
+                    
+            streaks.append(streak)
+                    
+            return streaks
+    async def get_stats(self , username ) :
+        async with connection(self.database_path) as db_con:
+            cursor = await db_con.cursor()
+            await cursor.execute("select * from participant where discord_id = ? ; " , (username,))
+            id = await cursor.fetchone()
+            print(id[0])
+            id = id[0]
+            
+            
+            await cursor.execute("select event.name , enrollement.score from enrollement join event on event.id = enrollement.event_id where strftime('%s', 'now')< end_date  and enrollement.participant_id = ? ; " , (id,))
+            active_enrollemnts = await cursor.fetchall()
+            print(active_enrollemnts)
+            
+            await cursor.execute("select event.name , enrollement.score from enrollement join event on event.id = enrollement.event_id where strftime('%s', 'now') > end_date  and enrollement.participant_id = ? ; " , (id,))
+            previous_enrollemnts = await cursor.fetchall()
+            print(previous_enrollemnts)
+            
+            await cursor.execute("select count(*) from submissions where participant_id = ? ; " , (id,))
+            nbrChallenges = await cursor.fetchone()
+            print(nbrChallenges)
+            
+            await cursor.execute("select register_date from participant where id = ? ; " , (id,))
+            joinDate = await cursor.fetchone()
+            joinDate = await self.convert_to_datetime(joinDate[0])
+            print(joinDate)
+            
+            return active_enrollemnts , previous_enrollemnts , nbrChallenges , joinDate
+            
+            
+        
     async def update_scores(self , cur):
 
         async with connection(self.database_path) as db_con:
+            
+            #maybe the update_scores function and populate_submissions should be part of one big function
             cursor = cur
             
-            await cursor.execute('select participant_id, event_id from enrollement;')
-            rows = await cursor.fetchall()
+            #select the ongoing evetns
+            events = await self.list_ongoing_evts()
             
-            for row in rows:
-                await cursor.execute('select CASE WHEN (completion_time - start_date) / 3600 < 0 THEN 0 ELSE (completion_time - start_date) / 3600 END AS completion_time from submissions join challenges on submissions.challenge_id = challenges.id where (submissions.participant_id= ?) and (challenges.id_event = ? )  ;', (row[0], row[1],))
-                delays = await cursor.fetchall()
-                score = len(delays)
+            for event in events  :
                 
-                await cursor.execute('update enrollement set score = ? where (participant_id = ?) and (event_id = ?);', (score, row[0], row[1]))
+                #get the participants of that event and initialize scores to 0
+                await cursor.execute("select * from enrollement where event_id = ? ; " , (event[0],))
+                participants = await cursor.fetchall()
+                participants_dict = {participant[0]: 0 for participant in participants}
+                #get the challenges of that event
+                await cursor.execute("select * from challenges where id_event = ? ; " , (event[0],))
+                challenges = await cursor.fetchall()
+                
+                
+                for challenge in challenges :
+                    await cursor.execute("select * from submissions where challenge_event_id = ? and challenge_id = ? ORDER BY  completion_time ASC ; " , (event[0],challenge[0],))
+                    submissions_ordered = await cursor.fetchall()
+                    print(submissions_ordered)
+                    
+                    for i , submission in enumerate(submissions_ordered) :
+                        #if the submission is the first one 
+                        if i == 0 :
+                            participants_dict[submission[1]] += 10
+                        elif i == 1  :
+                            participants_dict[submission[1]] += 8
+                        elif i == 2  :
+                            participants_dict[submission[1]] += 6
+                        else :
+                            participants_dict[submission[1]] += 4
+                        
+                        print(f"streaks for {submission[1]} : {await self.calculate_streaks(submission[1])}")
+                    
+                
+                for paraticipant  in participants_dict :
+                    await cursor.execute('update enrollement set score = ? where (participant_id = ?) and (event_id = ?);', (participants_dict[paraticipant], paraticipant, event[0]))
+                    
             
             await cursor.close()
             print("scores updated")
@@ -298,36 +385,31 @@ class DatabaseManager:
                 await cursor.execute("select titleSlug, challenges.id, challenges.id_event , event.start_date from challenges join questions on challenges.id == questions.id join event on event.id==challenges.id_event where  strftime('%s', 'now') < end_date and event.id = ?  ;" , (enrollement[1],))
                 ongoing_challenges = await cursor.fetchall()
 
-                #keep only the challenges after the event started 
-                cleaned_challenges = [chlg  for chlg in scraped_challenges if int(chlg['timestamp']) >= int(enrollement[2]) ] # remove all challenges done before the start of the event 
+                #keep only the challenges after the event starting date
+                relevant_challenges = [chlg  for chlg in scraped_challenges if int(chlg['timestamp']) >= int(enrollement[2]) ] # remove all challenges done before the start of the event 
 
                 
-                print(f"scraped : {len(scraped_challenges)} , left : {len(cleaned_challenges)}")
-                print(scraped_challenges)
+                print(f"ongoin : {ongoing_challenges} \nrelevant  : {relevant_challenges}")
+                #print(scraped_challenges)
 
-                match_found = False
-                i = 0
-
-                #match the two sets 
-                #use while loop to find the element with the earliest timestamp
-                while not match_found : 
-
-                    for ongoing_challenge in ongoing_challenges:
-                        if scraped_challenges[i].get('titleSlug') == ongoing_challenge[0]:
-                            match_found = True
+            
+                for ongoing_challenge in ongoing_challenges:
+                    
+                    for challenge in relevant_challenges :
+                        if ongoing_challenge[0] == challenge.get('titleSlug') :
                             try:
-                                await cursor.execute("insert into submissions (participant_id, challenge_id, challenge_event_id, completion_time) values(?, ?, ?, ?);", (enrollement[3], ongoing_challenge[1], ongoing_challenge[2], scraped_challenges[i].get('timestamp')))
+                                await cursor.execute("insert into submissions (participant_id, challenge_id, challenge_event_id, completion_time) values(?, ?, ?, ?);", (enrollement[3], ongoing_challenge[1], ongoing_challenge[2], challenge.get('timestamp')))
+                                print(f"inserted {enrollement[0]} {ongoing_challenge[0]}")
                                 break
-                            except aiosqlite.IntegrityError as e:
-                                print(e)
+                            except aiosqlite.IntegrityError :
                                 continue
-                                pass
-                            
-                    if match_found :
-                        break
+                    
+                                
+                    
 
             print("submissions refreshed")
             await self.update_scores(cursor)
+    
 
 
 
