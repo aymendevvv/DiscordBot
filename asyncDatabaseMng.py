@@ -4,7 +4,7 @@ import time
 import random
 from contextlib import asynccontextmanager
 from typing import Final
-from scraper import get_recent_submissions , verifiy_existance
+from scraper import get_recent_submissions , verify_existance
 from validator import Validator
 
 @asynccontextmanager
@@ -168,7 +168,8 @@ class DatabaseManager:
                 
 
                 days = (end_date-start_date)/86400
-                #instead of importing math.ceil
+                
+                #instead of importing math.ceil()
                 days = int((-(-days // 1) ) + 1 )
                 
                 if days > len(qst_set) : 
@@ -200,12 +201,12 @@ class DatabaseManager:
                 raise Exception() from e
             
             
-    async def registering(self, itrc_name, username):
+    async def registering(self, itrc_name, username , nick):
         try:
             async with connection(self.database_path) as db_con:
-                if verifiy_existance(username):
+                if verify_existance(username):
                     cursor = await db_con.cursor()
-                    await cursor.execute("insert into participant(discord_id , username , register_date) values( ? , ? , strftime('%s' , 'now'));", (itrc_name, username,))
+                    await cursor.execute("insert into participant(discord_id , username , register_date , nick) values( ? , ? , strftime('%s' , 'now') , ?);", (itrc_name, username,nick,))
                     await cursor.close()
                 else:
                     raise Exception("Make sure that the username is valid 😁")
@@ -242,7 +243,7 @@ class DatabaseManager:
         async with connection(self.database_path) as db_con:
             cursor = await db_con.cursor()
 
-            await cursor.execute(f" UPDATE challenges SET post_sent = 1 WHERE challenges.id = {id} AND challenges.id_event = {id_evt} ; ", (id , id_evt,))
+            await cursor.execute(f" UPDATE challenges SET post_sent = 1 WHERE challenges.id = ? AND challenges.id_event = ? ; ", (id , id_evt,))
             await cursor.close()
             print("challenge updated")
             
@@ -252,12 +253,21 @@ class DatabaseManager:
         async with connection(self.database_path) as db_con:
             cursor = await db_con.cursor()
 
-            await cursor.execute("select title, titleSlug , start_date , challenges.id from challenges join questions on challenges.id = questions.id where id_event = ? and challenges.post_sent != 1;", (evt,))
+            await cursor.execute("select title, titleSlug , start_date , challenges.id , post_sent from challenges join questions on challenges.id = questions.id where id_event = ? and challenges.post_sent != 1;", (evt,))
             rows = await cursor.fetchall()
             await cursor.close()
             
             return rows
+    async def get_leaderboard(self, evt_id):
+        #validate :evt code exists
+        async with connection(self.database_path) as db_con:
+            cursor = await db_con.cursor()
 
+            await cursor.execute("select  participant.nick , enrollement.score from enrollement join event on enrollement.event_id = event.id join participant on participant.id = enrollement.participant_id where strftime('%s' , 'now') < event.end_date and event.id = ? ORDER BY enrollement.score DESC ; ", (evt_id,))
+            rows = await cursor.fetchall()
+            await cursor.close()
+            
+            return rows
     async def list_ongoing_evts(self):
     
         async with connection(self.database_path) as db_con:
@@ -311,14 +321,16 @@ class DatabaseManager:
             
             await cursor.execute("select count(*) from submissions where participant_id = ? ; " , (id,))
             nbrChallenges = await cursor.fetchone()
-            print(nbrChallenges)
+            nbrChallenges = nbrChallenges[0]
             
             await cursor.execute("select register_date from participant where id = ? ; " , (id,))
             joinDate = await cursor.fetchone()
             joinDate = await self.convert_to_datetime(joinDate[0])
             print(joinDate)
             
-            return active_enrollemnts , previous_enrollemnts , nbrChallenges , joinDate
+            longest_streak = max(await self.calculate_streaks(id))
+            
+            return active_enrollemnts , previous_enrollemnts , nbrChallenges , joinDate , longest_streak
             
             
         
@@ -349,7 +361,7 @@ class DatabaseManager:
                     print(submissions_ordered)
                     
                     for i , submission in enumerate(submissions_ordered) :
-                        #if the submission is the first one 
+                        #score based on the submission date
                         if i == 0 :
                             participants_dict[submission[1]] += 10
                         elif i == 1  :

@@ -5,6 +5,7 @@ from discord import app_commands , Embed
 #from databaseMng import chose_random , list_challenges_for , enrollement , registering
 from asyncDatabaseMng import DatabaseManager
 from uuid import uuid4
+import discord
 
 PATH:Final = "C:\\Users\\sts\\Documents\\CODING\\python\\DiscordBot\\main.db"
 dbmanager = DatabaseManager(PATH)
@@ -48,7 +49,8 @@ async def fetch_today_challenges():
         print(f"challenges : {challenges}")
         challenges_list = []
         for challenge in challenges :
-            if (int(challenge[2])//86400 == int(time.time())//86400)  :
+            print(f" challenge[4]  : { challenge[4]}")  
+            if (int(challenge[2])//86400 == int(time.time())//86400) :
                 challenges_list.append((challenge[3] , evt , challenge[2]))
         return challenges_list
     return []
@@ -125,7 +127,7 @@ def run_discord_bot():
     async def register( interaction: discord.Interaction , username:str):
         try : 
 
-            await dbmanager.registering(interaction.user.name , username )
+            await dbmanager.registering(interaction.user.name , username , interaction.user.nick )
             await interaction.response.send_message(f"{interaction.user.mention } you're now resigtered in the system !")
         except Exception as e : 
             await interaction.response.send_message(e)
@@ -134,13 +136,16 @@ def run_discord_bot():
             
 
     @bot.tree.command(name="my_stats")
-    async def my_stats( interaction: discord.Interaction ):
-        try : 
-
-            stats = await dbmanager.get_stats(interaction.user.name )
-            await interaction.response.send_message(f"{stats }")
-        except Exception as e : 
-            await interaction.response.send_message(e)
+    async def my_stats(interaction: discord.Interaction):
+        try:
+            stats = await dbmanager.get_stats(interaction.user.name)
+            active_enrollements = ""
+            for enrollment in stats[0]:
+                active_enrollements += f" {enrollment[0]}-->{enrollment[1]} \n"
+            previous_enrollements = " " if not stats[1] else f"\n previous enrollements : {' -> '.join(stats[1])}"
+            await interaction.response.send_message(f"your active enrollements  :\n {active_enrollements} {previous_enrollements} \nsince {stats[3]} , you've solved {stats[2]} challenges , with the longest streak being {stats[4]} days!")
+        except Exception as e:
+            await interaction.response.send_message(str(e))
 
 
     ####################################### start event ################################################
@@ -250,6 +255,17 @@ def run_discord_bot():
             await interaction.response.send_message( infos )
         except Exception as e:
             await interaction.response.send_message( f"something went wrong {e}" )
+     ####################################### leaderboard ################################################
+    @bot.tree.command(name="leaderboard")
+    @app_commands.describe(evnt_id='insert the events id')
+    async def leaderboard(interaction: discord.Interaction , evnt_id:int) :
+        
+        participants = await dbmanager.get_leaderboard(evnt_id)
+        text = "leaderboard : \n"
+        for i , participant in enumerate(participants) :
+            text += f"{i+1}. @{participant[0]} with {participant[1]} points \n"
+            
+        await interaction.response.send_message( text )
         
         
     

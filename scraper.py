@@ -1,5 +1,6 @@
 import requests 
 import json
+from requests_html import HTMLSession
 
 
 cookies = {
@@ -70,16 +71,18 @@ def get_recent_submissions(username):
     recent_sub = json.loads(response.content.decode('utf8'))['data']['recentAcSubmissionList']
     return recent_sub
 
-def verifiy_existance(username) :
-    resp = requests.get(f"https://leetcode.com/{username}/")
-    if resp.status_code == 200 : 
+def verify_existance(username) :
+        
+    session = HTMLSession()
+    response = session.get(f'https://leetcode.com/{username}/')
+
+    print(response.status_code)
+    if response.status_code == 200 : 
         return True 
     else : 
         return False
     
 
-
-#verifiy_existance("aymenduzzstuff")
 
 #
 
